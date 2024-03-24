@@ -7,7 +7,7 @@ int main(int argc, char* argv[])
 
     if (WSAStartup(DLLVersion, &wsaData) != 0)
     {
-        std::cout << "Error WSAStartup" << std::endl;
+        std::cout << "Error WSAStartup" << std::endl; 
         return 1;
     }
 
@@ -44,20 +44,24 @@ int main(int argc, char* argv[])
     SOCKET newConnection;
     SOCKADDR_IN clientAddr;
     int clientAddrSize = sizeof(clientAddr);
-    newConnection = accept(sListen, (SOCKADDR*)&clientAddr, &clientAddrSize);
-    if (newConnection == INVALID_SOCKET)
-    {
-        std::cout << "Error accept" << std::endl;
-        closesocket(sListen);
-        WSACleanup();
-        return 1;
-    }
-    else
-    {
-        std::cout << "Client Connected" << std::endl;
+
+    while (true) {
+        newConnection = accept(sListen, (SOCKADDR*)&clientAddr, &clientAddrSize);
+        if (newConnection == INVALID_SOCKET)
+        {
+            std::cout << "Error accept" << std::endl;
+            closesocket(sListen);
+            WSACleanup();
+            return 1;
+        }
+        else
+        {
+            std::cout << "Client Connected" << std::endl;
+            std::thread clientThread(clientHandler, newConnection);
+            clientThread.detach();
+        }
     }
 
-    // Закрываем сокеты и очищаем Winsock
     closesocket(newConnection);
     closesocket(sListen);
     WSACleanup();
