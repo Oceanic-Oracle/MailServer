@@ -1,0 +1,1 @@
+INSERT INTO users (login, password) VALUES ($1, $2)

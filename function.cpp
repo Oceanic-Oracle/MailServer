@@ -1,49 +1,158 @@
 #include "lib.h"
 
-void signal(json signal, SOCKET client) 
+std::string login(const json& signal)
 {
-    std::string action = signal["0_action"];
-    std::cout << action << std::endl;
+    pqxx::connection database("dbname=Mail user=postgres password=241265 hostaddr=127.0.0.1 port=5432");
+    if (database.is_open())
+    {
+        std::cout << "Opened database successfully: " << database.dbname() << std::endl;
+    }
+    else
+    {
+        std::cout << "Can't open database" << std::endl;
+        throw std::runtime_error("database not opened");
+    }
+
+    std::string path("database/authorization.sql");
+    std::fstream fs;
+    fs.open(path, std::fstream::in);
+    if (!fs.is_open())
+    {
+        std::cout << ".sql is NOT open" << std::endl;
+        throw std::runtime_error(".sql file is not open");
+    }
+
+    else
+    {
+        std::cout << ".sql is open" << std::endl;
+    }
+
+    std::string request, line;
+    while (std::getline(fs, line))
+    {
+        request += line;
+    }
+
+    database.prepare("search", request);
+    pqxx::work do_in(database);
+    pqxx::result res = do_in.exec_prepared("search", signal["1_username"].get<std::string>(), signal["2_password"].get<std::string>());
+
+    std::string result;
+    for (auto row : res) 
+    {
+        for (auto field : row) 
+        {
+            result += field.c_str();
+        }
+    }
 
     json response;
+    response["0_action"] = "login";
+    response["1_result"] = result.empty() ? "error" : "success";
 
-    if (action == "login")
-    {
-        response["0_action"] = "login";
-        response["1_result"] = "success";
+    do_in.commit();
+    fs.close();    
 
-        std::string temp = response.dump();
-        send(client, temp.c_str(), temp.size(), 0);
-        //Приделать БД и проверку на сходство
-        std::cout << "Posted JSON: " << response.dump() << std::endl;
+    return response.dump();
+}
+
+std::string registration(const json& signal) {
+    pqxx::connection database("dbname=Mail user=postgres password=241265 hostaddr=127.0.0.1 port=5432");
+    if (!database.is_open()) {
+        std::cout << "Can't opened database" << std::endl;
+        throw std::runtime_error("database not opened");
     }
 
-    else if (action == "registration")
-    {
-        response["0_action"] = "login";
-        response["1_result"] = "success";
+    std::string searchpath = "database/searchusers.sql";
+    std::ifstream fs(searchpath);
+    if (!fs.is_open()) {
+        std::cout << ".sql is NOT open" << std::endl;
+        throw std::runtime_error(".sql file is not open");
+    }
+    std::string request((std::istreambuf_iterator<char>(fs)), std::istreambuf_iterator<char>());
+    fs.close();
 
-        std::string temp = response.dump();
-        send(client, temp.c_str(), temp.size(), 0);
-        //Приделать БД и проверку на сходство
-        std::cout << "Posted JSON: " << response.dump() << std::endl;
+    std::string login = signal["1_Username"].get<std::string>();
+    std::string password = signal["2_Password"].get<std::string>();
+
+    pqxx::work check_work(database);
+    pqxx::result check_res = check_work.exec_params(
+        request,
+        login
+    );
+    check_work.commit();
+
+    json response;
+    if (check_res.empty()) {
+        pqxx::work insert_work(database);
+        std::string insertpath = "database/newuser.sql";
+        std::ifstream insert_fs(insertpath);
+        if (!insert_fs.is_open()) {
+            std::cout << ".sql is NOT open" << std::endl;
+            throw std::runtime_error(".sql file is not open");
+        }
+
+        std::string insert_request((std::istreambuf_iterator<char>(insert_fs)), std::istreambuf_iterator<char>());
+        insert_fs.close();
+
+        pqxx::result insert_res = insert_work.exec_params(
+            insert_request,
+            login, password
+        );
+        insert_work.commit(); 
+
+        response["0_action"] = "registration";
+        response["1_result"] = (insert_res.affected_rows() == 1) ? "success" : "error";
+    }
+    else {
+        response["0_action"] = "registration";
+        response["1_result"] = "error";
     }
 
-    else if (action == "message")
-    {
-        std::string temp = response.dump();
-        send(client, temp.c_str(), temp.size(), 0);
-        //Приделать БД и проверку на сходство
-        std::cout << "Posted JSON: " << response.dump() << std::endl;
-    }
+    return response.dump();
+}
 
-    else 
+std::string message(const json& signal)
+{
+    json response;
+    response["0_action"] = "login";
+    response["1_result"] = "success";
+
+    std::string temp = response.dump();
+    return temp;
+}
+
+void signal(const json& signal, SOCKET client) 
+{
+    const std::map<std::string, std::function<std::string(const json& signal)>> actions = 
+    { 
+    {"login",        login},
+    {"registration", registration},
+    {"message",      message}
+    };
+
+    std::string const temp = signal["0_action"].get<std::string>();
+
+    try {
+        auto it = actions.find(temp);
+        if (it != actions.end())
+        {
+            std::string response = it->second(signal);
+            std::cout << response << std::endl;
+            send(client, response.c_str(), response.size(), 0);
+        }
+        else 
+        {
+            std::cout << "Unknown action: " << temp << std::endl;
+        }
+    }
+    catch (const std::exception& e)
     {
-        std::cout << "Wrong format JSON!" << std::endl;
+        std::cerr << "Caught exception: " << e.what() << std::endl;
     }
 }
 
-void clientHandler(SOCKET clientSocket)
+void clientHandler(const SOCKET clientSocket)
 {
     char msg[4096];
     while (true) {
@@ -74,12 +183,10 @@ void clientHandler(SOCKET clientSocket)
                 
                 signal(jsonData, clientSocket);
             }
-
             catch (json::parse_error& e)
             {
                 std::cerr << "JSON parsing error: " << e.what() << std::endl;
             }
-
             catch (std::exception& e)
             {
                 std::cerr << "Unexpected error: " << e.what() << std::endl;
