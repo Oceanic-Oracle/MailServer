@@ -21,24 +21,21 @@ std::string login(const json& signal)
         std::cout << ".sql is NOT open" << std::endl;
         throw std::runtime_error(".sql file is not open");
     }
+    std::string request((std::istreambuf_iterator<char>(fs)), std::istreambuf_iterator<char>());
+    fs.close();
 
-    else
-    {
-        std::cout << ".sql is open" << std::endl;
-    }
+    std::string login = signal["1_username"].get<std::string>();
+    std::string password = signal["2_password"].get<std::string>();
 
-    std::string request, line;
-    while (std::getline(fs, line))
-    {
-        request += line;
-    }
-
-    database.prepare("search", request);
-    pqxx::work do_in(database);
-    pqxx::result res = do_in.exec_prepared("search", signal["1_username"].get<std::string>(), signal["2_password"].get<std::string>());
+    pqxx::work check_work(database);
+    pqxx::result check_res = check_work.exec_params(
+        request,
+        login,
+        password
+    );
 
     std::string result;
-    for (auto row : res) 
+    for (auto row : check_res)
     {
         for (auto field : row) 
         {
@@ -50,8 +47,7 @@ std::string login(const json& signal)
     response["0_action"] = "login";
     response["1_result"] = result.empty() ? "error" : "success";
 
-    do_in.commit();
-    fs.close();    
+    check_work.commit();
 
     return response.dump();
 }
@@ -72,8 +68,8 @@ std::string registration(const json& signal) {
     std::string request((std::istreambuf_iterator<char>(fs)), std::istreambuf_iterator<char>());
     fs.close();
 
-    std::string login = signal["1_Username"].get<std::string>();
-    std::string password = signal["2_Password"].get<std::string>();
+    std::string login = signal["1_username"].get<std::string>();
+    std::string password = signal["2_password"].get<std::string>();
 
     pqxx::work check_work(database);
     pqxx::result check_res = check_work.exec_params(
