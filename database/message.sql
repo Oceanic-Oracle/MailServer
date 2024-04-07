@@ -1,1 +1,0 @@
-INSERT INTO messages (theme, message, sender, recipient) VALUES ($1, $2, $3, $4)

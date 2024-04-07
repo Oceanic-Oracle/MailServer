@@ -1,0 +1,1 @@
+INSERT INTO messages (sender, recipient, theme, message, date) VALUES ($1, $2, $3, $4, NOW())
